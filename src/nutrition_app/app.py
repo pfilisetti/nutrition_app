@@ -5,7 +5,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
 from agent import get_agent_executor
-from tools import get_retriever
+from tools import get_retriever, compare_food_variants
 
 load_dotenv()
 
@@ -21,7 +21,7 @@ st.markdown(
 
 st.title("🥗 Nutrition AI Assistant")
 st.write(
-    "Ask questions about nutrition — I'll search your personal notes and the USDA database."
+    "Ask me anything about food — what to eat, what to avoid, and why. Backed by nutrition research and real food data."
 )
 
 
@@ -37,6 +37,27 @@ def load_llm():
         api_key=os.environ["NVIDIA_API_KEY"],
         temperature=0.0,
     )
+
+
+def extract_food_entities(query: str, llm) -> list[str]:
+    """Extract food names from a query for variant comparison. Returns up to 2 food names in English."""
+    result = llm.invoke(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Extract food names from the user's message. "
+                    "Return only a comma-separated list of food names in English (e.g. 'almond, spinach'). "
+                    "Return at most 2 foods. If no food is mentioned, return an empty string. "
+                    "No explanations, no punctuation other than commas."
+                ),
+            },
+            {"role": "user", "content": query},
+        ]
+    ).content.strip()
+    if not result:
+        return []
+    return [f.strip() for f in result.split(",") if f.strip()][:2]
 
 
 def check_input(user_input: str) -> tuple[bool, str | None]:
@@ -106,11 +127,28 @@ if prompt := st.chat_input("Ask about nutrition..."):
                 else:
                     # Retrieve relevant docs and inject as context
                     rag_docs = get_retriever().invoke(prompt)
+
+                    # Extract food entities and fetch USDA variant comparisons
+                    food_entities = extract_food_entities(prompt, load_llm())
+                    variant_comparisons = []
+                    for food in food_entities:
+                        comparison = compare_food_variants(food)
+                        if comparison:
+                            variant_comparisons.append(comparison)
+
                     if rag_docs:
                         context = "\n\n---\n\n".join(d.page_content for d in rag_docs)
-                        enriched_input = f"Relevant context from knowledge base:\n{context}\n\nUser question: {prompt}"
+                        enriched_input = f"Relevant context from knowledge base:\n{context}\n\nUser question: {prompt}\n\n(Always format your answer using Markdown: bullet points, bold key terms, headers for longer answers.)"
                     else:
-                        enriched_input = prompt
+                        enriched_input = f"{prompt}\n\n(Always format your answer using Markdown: bullet points, bold key terms, headers for longer answers.)"
+
+                    if variant_comparisons:
+                        enriched_input += (
+                            "\n\n"
+                            + "\n\n".join(variant_comparisons)
+                            + "\n\n(USDA variant data has already been retrieved above. "
+                            "Use it to answer directly — do NOT call USDA tools.)"
+                        )
 
                     # Rebuild chat history from session state (only keep last 6 messages to stay fast)
                     chat_history = []
@@ -131,7 +169,14 @@ if prompt := st.chat_input("Ask about nutrition..."):
 
                     # If agent looped and stopped without a proper answer,
                     # synthesize from all gathered info (RAG context + any USDA tool results)
-                    if not answer or "stopped" in answer.lower() or len(answer) < 30:
+                    if (
+                        not answer
+                        or "stopped" in answer.lower()
+                        or len(answer) < 30
+                        or "get_available_usda_food" in answer
+                        or "get_detailed_nutritional_content" in answer
+                        or "fdcId" in answer
+                    ):
                         tool_context = ""
                         for action, observation in response.get("intermediate_steps", []):
                             tool_context += f"\nTool: {action.tool}\nResult: {observation}\n"
@@ -151,6 +196,20 @@ if prompt := st.chat_input("Ask about nutrition..."):
                                 {"role": "user", "content": synthesis_input},
                             ]
                         ).content
+
+                    # Build source legend
+                    usda_used = bool(variant_comparisons) or any(
+                        action.tool in ("get_available_usda_food", "get_detailed_nutritional_content")
+                        for action, _ in response.get("intermediate_steps", [])
+                    )
+                    sources = []
+                    if rag_docs:
+                        sources.append("📚 Knowledge base")
+                    if usda_used:
+                        sources.append("🌾 USDA FoodData Central")
+                    if sources:
+                        answer += "\n\n---\n*Sources: " + " · ".join(sources) + "*"
+
                     placeholder.markdown(answer)
                     st.session_state.messages.append(
                         {"role": "assistant", "content": answer}

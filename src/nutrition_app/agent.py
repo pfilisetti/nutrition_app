@@ -24,11 +24,12 @@ Tool usage rules:
   Step 2: once confirmed, call get_detailed_nutritional_content with the fdcId (integer).
   Never nest tool calls inside other tool calls.
 
-Answer format:
+Answer format — follow these rules on EVERY response, regardless of conversation length:
+- Always use Markdown formatting: bullet points for lists, **bold** for key terms, headers (##) for longer answers.
 - Never dump a raw list of nutrients. Always synthesize the information into a natural, helpful answer tailored to the user's question.
 - Highlight what is most relevant to what the user asked.
 - Be conversational and practical — give concrete recommendations (specific foods, quantities, tips).
-- Keep answers concise and well-formatted."""
+- Keep answers concise."""
 
 
 def get_agent_executor() -> AgentExecutor:

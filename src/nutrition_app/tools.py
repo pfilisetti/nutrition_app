@@ -47,6 +47,74 @@ def get_rag_tool():
     )
 
 
+_KEY_NUTRIENTS = [
+    "Energy", "Protein", "Total lipid (fat)", "Carbohydrate, by difference",
+    "Fiber, total dietary", "Calcium, Ca", "Iron, Fe", "Magnesium, Mg",
+    "Zinc, Zn", "Potassium, K", "Selenium, Se", "Choline, total",
+    "Thiamin", "Riboflavin", "Niacin", "Pantothenic acid", "Vitamin B-6",
+    "Folate, total", "Vitamin B-12", "Vitamin C, total ascorbic acid",
+    "Vitamin D (D2 + D3)", "Vitamin E (alpha-tocopherol)", "Vitamin K (phylloquinone)",
+]
+
+
+def compare_food_variants(food: str) -> str:
+    """
+    Search USDA for a food and its common variants, fetch nutrients for each,
+    and return a structured comparison. Used to flag nutrient differences
+    across forms (e.g., almond vs almond milk vs almond butter).
+    """
+    try:
+        search_resp = requests.get(
+            "https://api.nal.usda.gov/fdc/v1/foods/search",
+            params={
+                "query": food,
+                "dataType": "Foundation,SR Legacy",
+                "pageSize": 5,
+                "api_key": os.environ["USDA_API_KEY"],
+            },
+            timeout=6,
+        )
+        search_resp.raise_for_status()
+        foods = search_resp.json().get("foods", [])[:4]
+    except Exception:
+        return ""
+
+    if not foods:
+        return ""
+
+    variants = []
+    for f in foods:
+        try:
+            detail_resp = requests.get(
+                f"https://api.nal.usda.gov/fdc/v1/food/{f['fdcId']}",
+                params={"api_key": os.environ["USDA_API_KEY"], "format": "abridged"},
+                timeout=6,
+            )
+            detail_resp.raise_for_status()
+            nutrients = {
+                n["name"]: (n.get("amount", 0), n.get("unitName", ""))
+                for n in detail_resp.json().get("foodNutrients", [])
+                if n.get("name") in _KEY_NUTRIENTS and n.get("amount", 0) > 0
+            }
+            variants.append({"name": f["description"], "nutrients": nutrients})
+        except Exception:
+            continue
+
+    if not variants:
+        return ""
+
+    lines = [f"USDA nutrient comparison for '{food}' variants (per 100g):\n"]
+    for v in variants:
+        lines.append(f"• {v['name']}")
+        for nutrient in _KEY_NUTRIENTS:
+            if nutrient in v["nutrients"]:
+                amount, unit = v["nutrients"][nutrient]
+                lines.append(f"  - {nutrient}: {amount:.1f} {unit}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 @tool
 def get_available_usda_food(food_query: str, dataType: str = "Foundation") -> list | str:
     """Search for foods in the USDA FoodData Central database by keyword.
