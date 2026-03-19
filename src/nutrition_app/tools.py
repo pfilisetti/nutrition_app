@@ -28,6 +28,10 @@ def _get_retriever():
     return vectorstore.as_retriever(search_kwargs={"k": 6})
 
 
+def get_retriever():
+    return _get_retriever()
+
+
 def get_rag_tool():
     return create_retriever_tool(
         _get_retriever(),

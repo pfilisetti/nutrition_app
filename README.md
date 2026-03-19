@@ -1,6 +1,6 @@
 # Nutrition AI Assistant
 
-A RAG-powered nutrition chatbot built with LangChain, NVIDIA LLMs, and Qdrant. Ask questions about your personal nutrition documents or get precise data from the USDA FoodData Central database.
+A RAG-powered nutrition chatbot built with LangChain, NVIDIA LLMs, and Qdrant. Ask questions in French or English about nutrition, foods, and diet — the assistant searches a curated personal knowledge base and optionally queries the USDA FoodData Central database for precise nutritional data.
 
 ---
 
@@ -9,7 +9,7 @@ A RAG-powered nutrition chatbot built with LangChain, NVIDIA LLMs, and Qdrant. A
 | Layer | Technology |
 |---|---|
 | LLM | `meta/llama-3.3-70b-instruct` via NVIDIA NIM |
-| Embeddings | `all-MiniLM-L6-v2` (HuggingFace, local) |
+| Embeddings | `intfloat/multilingual-e5-large` (HuggingFace, local, 1024 dims) |
 | Vector store | Qdrant Cloud |
 | External data | USDA FoodData Central API |
 | UI | Streamlit |
@@ -41,21 +41,37 @@ USDA_API_KEY=your_usda_api_key
 - **Qdrant**: [cloud.qdrant.io](https://cloud.qdrant.io) — create a free cluster
 - **USDA API key**: [fdc.nal.usda.gov/api-guide](https://fdc.nal.usda.gov/api-guide.html)
 
-### 3. Ingest your personal documents
-
-Place your `.docx` and `.xlsx` files in a `docs/` folder at the project root, then run:
+### 3. Ingest the knowledge base
 
 ```bash
 uv run python src/nutrition_app/ingest.py
 ```
 
-This only needs to be done once (or whenever your documents change).
+This only needs to be done once (or whenever the knowledge base changes). It will delete and recreate the Qdrant collection.
 
 ### 4. Launch the app
 
 ```bash
 nutrition
 ```
+
+---
+
+## Knowledge Base
+
+The knowledge base lives in `docs_md/` and is organized into 4 categories:
+
+```
+docs_md/
+├── concepts/     — vitamins, minerals, proteins, fats, carbohydrates, fiber,
+│                   antioxidants, omega-3, grains, energy metabolism, cholesterol
+├── foods/        — per-food profiles with key nutrients and % daily value
+│                   (vegetables, fish, meat, eggs, dairy, legumes, nuts/seeds, fruits)
+├── guides/       — raw vs cooked, food storage & safety, weight loss & muscle gain
+└── personal/     — personal nutrient sources with quantities and % daily intake
+```
+
+Each file uses `##` sections (one per food or concept) so every RAG chunk is self-contained and meaningful.
 
 ---
 
@@ -66,7 +82,7 @@ User types a message
         │
         ▼
 ┌───────────────────────┐
-│   Input guard (LLM)   │  Classifies the message as FOOD / GREETING / OFF_TOPIC
+│   Input guard (LLM)   │  Classifies as FOOD / GREETING / OFF_TOPIC
 └───────────┬───────────┘
             │
     ┌───────┴────────┐
@@ -75,63 +91,70 @@ GREETING /       FOOD-related
 OFF_TOPIC             │
     │                 ▼
     │   ┌─────────────────────────┐
-    │   │   LangChain Agent       │  Llama 3.3 70B decides which tool(s) to call
+    │   │  RAG retrieval (Qdrant) │  Top 6 chunks by cosine similarity
     │   └────────────┬────────────┘
-    │                │
-    │     ┌──────────┼──────────────────┐
-    │     │          │                  │
-    │     ▼          ▼                  ▼
-    │  search_    get_available_    get_detailed_
-    │  personal_  usda_food()       nutritional_
-    │  docs()     (USDA search)     content()
-    │  (Qdrant    Returns list of   (USDA detail,
-    │   RAG)      foods + fdcIds)   requires fdcId)
-    │     │          │                  │
-    │     └──────────┴──────────────────┘
-    │                │
+    │                │ context injected into message
     │                ▼
     │   ┌─────────────────────────┐
-    │   │   Agent synthesizes     │  Combines tool results into a final answer
-    │   │   final answer          │
-    │   └─────────────────────────┘
+    │   │   LangChain Agent       │  Llama 3.3 70B (max 5 iterations)
+    │   └────────────┬────────────┘
+    │                │ (optionally calls USDA tools)
+    │     ┌──────────┴──────────┐
+    │     ▼                     ▼
+    │  get_available_       get_detailed_
+    │  usda_food()          nutritional_
+    │  (USDA search)        content()
+    │     │                     │
+    │     └──────────┬──────────┘
     │                │
-    └────────────────┘
-                     │
-                     ▼
-            Answer displayed in chat
+    │         ┌──────┴──────────────────────────┐
+    │         │                                 │
+    │    Proper answer                    Looped / stopped
+    │         │                                 │
+    │         │                    ┌────────────────────────┐
+    │         │                    │  Fallback synthesis     │
+    │         │                    │  RAG context +          │
+    │         │                    │  intermediate tool data │
+    │         │                    └────────────┬───────────┘
+    │         │                                 │
+    └─────────┴─────────────────────────────────┘
+                                  │
+                                  ▼
+                         Answer displayed in chat
 ```
 
 ### Step-by-step detail
 
-1. **Input guard** — a first LLM call classifies the prompt. Off-topic and greeting messages are short-circuited here, no agent is invoked.
+1. **Input guard** — a first LLM call classifies the prompt. Off-topic and greeting messages are short-circuited here; no agent is invoked.
 
-2. **Agent invocation** — for food-related prompts, the LangChain `AgentExecutor` is called with the full chat history for context.
+2. **RAG retrieval** — for food-related prompts, the top 6 most relevant chunks are retrieved from Qdrant using cosine similarity and injected as context into the user message.
 
-3. **Tool selection** — the LLM reasons about which tool(s) to call:
-   - `search_personal_docs` — semantic search over your ingested `.docx`/`.xlsx` files stored in Qdrant (top 4 chunks by cosine similarity)
-   - `get_available_usda_food` — keyword search against the USDA FoodData Central API, returns food names and `fdcId`s
+3. **Agent invocation** — the LangChain `AgentExecutor` receives the enriched message (context + question) and the chat history. Max 5 iterations.
+
+4. **Tool selection (optional)** — if the knowledge base context is insufficient, the agent can call:
+   - `get_available_usda_food` — keyword search against USDA FoodData Central, returns food names and `fdcId`s
    - `get_detailed_nutritional_content` — fetches the full nutrient breakdown for a specific `fdcId`
 
-4. **Answer synthesis** — the LLM receives the tool outputs and writes the final response, making clear which information comes from personal documents vs. the USDA database.
+5. **Answer synthesis** — the LLM writes a natural, conversational response in the user's language (French or English). If the agent looped without producing a proper answer, a fallback direct LLM call synthesizes the final answer using the RAG context and any USDA data collected during the loop — no error is ever shown to the user.
 
 ---
 
-## Ingestion pipeline (one-time setup)
+## Ingestion pipeline
 
 ```
-docs/*.docx + docs/*.xlsx
+docs_md/**/*.md  (23 files, 4 categories)
         │
         ▼
-  Document loaders
-  (Docx2txt / Unstructured)
+  TextLoader (UTF-8)
         │
         ▼
-  RecursiveCharacterTextSplitter
-  chunk_size=1000, overlap=200
+  MarkdownHeaderTextSplitter
+  splits on #, ##, ### headers
+  → 279 self-contained chunks
         │
         ▼
   HuggingFace embeddings
-  (all-MiniLM-L6-v2, 384 dims)
+  (intfloat/multilingual-e5-large, 1024 dims)
         │
         ▼
   Qdrant Cloud collection

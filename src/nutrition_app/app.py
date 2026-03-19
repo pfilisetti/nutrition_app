@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
 from agent import get_agent_executor
+from tools import get_retriever
 
 load_dotenv()
 
@@ -103,6 +104,14 @@ if prompt := st.chat_input("Ask about nutrition..."):
                         {"role": "assistant", "content": guard_reply}
                     )
                 else:
+                    # Retrieve relevant docs and inject as context
+                    rag_docs = get_retriever().invoke(prompt)
+                    if rag_docs:
+                        context = "\n\n---\n\n".join(d.page_content for d in rag_docs)
+                        enriched_input = f"Relevant context from knowledge base:\n{context}\n\nUser question: {prompt}"
+                    else:
+                        enriched_input = prompt
+
                     # Rebuild chat history from session state (only keep last 6 messages to stay fast)
                     chat_history = []
                     recent_messages = st.session_state.messages[-7:-1] if len(st.session_state.messages) > 6 else st.session_state.messages[:-1]
@@ -114,11 +123,34 @@ if prompt := st.chat_input("Ask about nutrition..."):
 
                     response = load_agent().invoke(
                         {
-                            "input": prompt,
+                            "input": enriched_input,
                             "chat_history": chat_history,
                         }
                     )
                     answer = response["output"]
+
+                    # If agent looped and stopped without a proper answer,
+                    # synthesize from all gathered info (RAG context + any USDA tool results)
+                    if not answer or "stopped" in answer.lower() or len(answer) < 30:
+                        tool_context = ""
+                        for action, observation in response.get("intermediate_steps", []):
+                            tool_context += f"\nTool: {action.tool}\nResult: {observation}\n"
+
+                        synthesis_input = enriched_input
+                        if tool_context:
+                            synthesis_input += f"\n\nAdditional data retrieved:\n{tool_context}"
+
+                        answer = load_llm().invoke(
+                            [
+                                {"role": "system", "content": (
+                                    "You are a knowledgeable, conversational nutrition assistant. "
+                                    "Answer the user's question using the provided context and data. "
+                                    "Respond in the same language as the user's question. "
+                                    "Be concise, practical, and conversational — no raw nutrient dumps."
+                                )},
+                                {"role": "user", "content": synthesis_input},
+                            ]
+                        ).content
                     placeholder.markdown(answer)
                     st.session_state.messages.append(
                         {"role": "assistant", "content": answer}
