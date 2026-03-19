@@ -59,14 +59,14 @@ def get_detailed_nutritional_content(fdcId: int) -> list:
     """Get the full nutrient breakdown for a specific food item.
     Requires the fdcId returned by get_available_usda_food."""
     url = f"https://api.nal.usda.gov/fdc/v1/food/{int(fdcId)}"
-    params = {"api_key": os.environ["USDA_API_KEY"]}
+    params = {"api_key": os.environ["USDA_API_KEY"], "format": "abridged"}
     response = requests.get(url, params=params)
     response.raise_for_status()
     data = response.json()
     return [
         {
-            "name": n.get("nutrient", {}).get("name"),
-            "unit": n.get("nutrient", {}).get("unitName"),
+            "name": n.get("name"),
+            "unit": n.get("unitName"),
             "amount": n.get("amount"),
         }
         for n in data.get("foodNutrients", [])

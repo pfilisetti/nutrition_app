@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 
-from .agent import get_agent_executor
+from agent import get_agent_executor
 
 load_dotenv()
 
@@ -39,7 +39,8 @@ def check_input(user_input: str) -> tuple[bool, str | None]:
     system = (
         "You are a classifier for a nutrition assistant app. "
         "Respond with exactly one word: FOOD if the user message is related to food, "
-        "nutrition, diet, health, ingredients, or meals. "
+        "nutrition, diet, health, ingredients, meals, OR if it is a short selection or number "
+        "(e.g., 'number 3', 'the first one', '1') that might answer a previous food list question. "
         "Respond with GREETING if it is a greeting or social message (hello, thanks, bye, etc.). "
         "Respond with OFF_TOPIC otherwise."
     )
@@ -81,9 +82,10 @@ if prompt := st.chat_input("Ask about nutrition..."):
                     placeholder.markdown(guard_reply)
                     st.session_state.messages.append({"role": "assistant", "content": guard_reply})
                 else:
-                    # Rebuild chat history from session state (excluding current message)
+                    # Rebuild chat history from session state (only keep last 6 messages to stay fast)
                     chat_history = []
-                    for msg in st.session_state.messages[:-1]:
+                    recent_messages = st.session_state.messages[-7:-1] if len(st.session_state.messages) > 6 else st.session_state.messages[:-1]
+                    for msg in recent_messages:
                         if msg["role"] == "user":
                             chat_history.append(HumanMessage(content=msg["content"]))
                         else:
