@@ -138,9 +138,9 @@ if prompt := st.chat_input("Ask about nutrition..."):
 
                     if rag_docs:
                         context = "\n\n---\n\n".join(d.page_content for d in rag_docs)
-                        enriched_input = f"Relevant context from knowledge base:\n{context}\n\nUser question: {prompt}\n\n(Always format your answer using Markdown: bullet points, bold key terms, headers for longer answers.)"
+                        enriched_input = f"Relevant context from knowledge base:\n{context}\n\nUser question: {prompt}\n\n(Always format your answer using Markdown: bullet points, bold key terms, headers for longer answers. When citing specific numbers or quantities, tag each one inline with its source: 📚 if it comes from the knowledge base context above, 🌾 if it comes from USDA data.)"
                     else:
-                        enriched_input = f"{prompt}\n\n(Always format your answer using Markdown: bullet points, bold key terms, headers for longer answers.)"
+                        enriched_input = f"{prompt}\n\n(Always format your answer using Markdown: bullet points, bold key terms, headers for longer answers. When citing specific numbers or quantities, tag each one inline with its source: 📚 if it comes from the knowledge base context above, 🌾 if it comes from USDA data.)"
 
                     if variant_comparisons:
                         enriched_input += (
@@ -191,7 +191,12 @@ if prompt := st.chat_input("Ask about nutrition..."):
                                     "You are a knowledgeable, conversational nutrition assistant. "
                                     "Answer the user's question using the provided context and data. "
                                     "Respond in the same language as the user's question. "
-                                    "Be concise, practical, and conversational — no raw nutrient dumps."
+                                    "Be concise, practical, and conversational — no raw nutrient dumps. "
+                                    "CRITICAL: Never invent or recall numerical values (grams, milligrams, calories, percentages) from your training data. "
+                                    "Every number you state must come verbatim from the provided context. "
+                                    "If the figures are not in the context, say so explicitly instead of guessing. "
+                                    "When citing specific numbers, tag each one inline with its source: "
+                                    "📚 if it comes from the knowledge base context, 🌾 if it comes from USDA data."
                                 )},
                                 {"role": "user", "content": synthesis_input},
                             ]
@@ -211,6 +216,14 @@ if prompt := st.chat_input("Ask about nutrition..."):
                         answer += "\n\n---\n*Sources: " + " · ".join(sources) + "*"
 
                     placeholder.markdown(answer)
+                    if rag_docs:
+                        with st.expander("📚 Raw RAG chunks retrieved"):
+                            for i, doc in enumerate(rag_docs, 1):
+                                st.markdown(f"**Chunk {i}** — `{doc.metadata.get('source', 'unknown')}`")
+                                st.text(doc.page_content)
+                    if variant_comparisons:
+                        with st.expander("🌾 Raw USDA data fetched"):
+                            st.text("\n\n".join(variant_comparisons))
                     st.session_state.messages.append(
                         {"role": "assistant", "content": answer}
                     )

@@ -96,7 +96,7 @@ def compare_food_variants(food: str) -> str:
                 for n in detail_resp.json().get("foodNutrients", [])
                 if n.get("name") in _KEY_NUTRIENTS and n.get("amount", 0) > 0
             }
-            variants.append({"name": f["description"], "nutrients": nutrients})
+            variants.append({"name": f["description"], "fdcId": f["fdcId"], "nutrients": nutrients})
         except Exception:
             continue
 
@@ -105,7 +105,7 @@ def compare_food_variants(food: str) -> str:
 
     lines = [f"USDA nutrient comparison for '{food}' variants (per 100g):\n"]
     for v in variants:
-        lines.append(f"• {v['name']}")
+        lines.append(f"• {v['name']} (fdcId: {v['fdcId']})")
         for nutrient in _KEY_NUTRIENTS:
             if nutrient in v["nutrients"]:
                 amount, unit = v["nutrients"][nutrient]
