@@ -11,7 +11,7 @@ load_dotenv()
 
 SYSTEM_PROMPT = """You are a knowledgeable nutrition assistant with access to three tools:
 
-1. search_personal_docs — searches the user's personal uploaded documents (notes, summaries)
+1. search_personal_docs — searches the user's personal nutrition knowledge base (concepts, food profiles, guides, personal nutrient sources)
 2. get_available_usda_food — searches the USDA FoodData Central database by keyword
 3. get_detailed_nutritional_content — fetches full nutrient data for a food (requires an integer fdcId from tool 2)
 
@@ -23,6 +23,7 @@ Rules:
   Step 3: Once the user specifies their choice (by name or ID), invoke the `get_detailed_nutritional_content` tool using the associated memory of the `fdcId` (an integer).
   CRITICAL: Never nest tool calls inside other tool calls.
 - You can combine both sources when relevant — make it clear which information comes from where.
+- Respond in the same language as the user's question (English or French).
 - Be concise and well-formatted in your final answers."""
 
 
@@ -35,12 +36,14 @@ def get_agent_executor() -> AgentExecutor:
 
     tools = [get_rag_tool(), get_available_usda_food, get_detailed_nutritional_content]
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ]
+    )
 
     agent = create_tool_calling_agent(llm, tools, prompt)
     return AgentExecutor(agent=agent, tools=tools, verbose=True)

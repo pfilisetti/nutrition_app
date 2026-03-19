@@ -9,14 +9,19 @@ from agent import get_agent_executor
 load_dotenv()
 
 st.set_page_config(page_title="Nutrition AI", page_icon="🥗", layout="centered")
-st.markdown("""
+st.markdown(
+    """
 <style>
 .stApp { max-width: 800px; margin: 0 auto; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 st.title("🥗 Nutrition AI Assistant")
-st.write("Ask questions about nutrition — I'll search your personal notes and the USDA database.")
+st.write(
+    "Ask questions about nutrition — I'll search your personal notes and the USDA database."
+)
 
 
 @st.cache_resource
@@ -44,21 +49,35 @@ def check_input(user_input: str) -> tuple[bool, str | None]:
         "Respond with GREETING if it is a greeting or social message (hello, thanks, bye, etc.). "
         "Respond with OFF_TOPIC otherwise."
     )
-    result = llm.invoke([
-        {"role": "system", "content": system},
-        {"role": "user", "content": user_input},
-    ]).content.strip().upper()
+    result = (
+        llm.invoke(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_input},
+            ]
+        )
+        .content.strip()
+        .upper()
+    )
 
     if result == "FOOD":
         return True, None
     if result == "GREETING":
-        reply = llm.invoke([
-            {"role": "system", "content": "You are a friendly nutrition assistant. Reply briefly and invite the user to ask a nutrition question."},
-            {"role": "user", "content": user_input},
-        ]).content
+        reply = llm.invoke(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a friendly nutrition assistant. Reply briefly and invite the user to ask a nutrition question.",
+                },
+                {"role": "user", "content": user_input},
+            ]
+        ).content
         return False, reply
     # OFF_TOPIC
-    return False, "I'm a nutrition assistant — I can only help with questions about food, diet, and nutrition."
+    return (
+        False,
+        "I'm a nutrition assistant — I can only help with questions about food, diet, and nutrition.",
+    )
 
 
 if "messages" not in st.session_state:
@@ -80,7 +99,9 @@ if prompt := st.chat_input("Ask about nutrition..."):
 
                 if not is_food_related:
                     placeholder.markdown(guard_reply)
-                    st.session_state.messages.append({"role": "assistant", "content": guard_reply})
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": guard_reply}
+                    )
                 else:
                     # Rebuild chat history from session state (only keep last 6 messages to stay fast)
                     chat_history = []
@@ -91,15 +112,21 @@ if prompt := st.chat_input("Ask about nutrition..."):
                         else:
                             chat_history.append(AIMessage(content=msg["content"]))
 
-                    response = load_agent().invoke({
-                        "input": prompt,
-                        "chat_history": chat_history,
-                    })
+                    response = load_agent().invoke(
+                        {
+                            "input": prompt,
+                            "chat_history": chat_history,
+                        }
+                    )
                     answer = response["output"]
                     placeholder.markdown(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": answer}
+                    )
 
             except Exception as e:
                 error_msg = f"**Error:** {str(e)}"
                 placeholder.markdown(error_msg)
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": error_msg}
+                )

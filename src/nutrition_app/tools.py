@@ -15,14 +15,17 @@ COLLECTION_NAME = "nutrition_docs"
 
 @lru_cache(maxsize=1)
 def _get_retriever():
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    embeddings = HuggingFaceEmbeddings(
+        model_name="intfloat/multilingual-e5-large",
+        encode_kwargs={"normalize_embeddings": True},
+    )
     vectorstore = QdrantVectorStore.from_existing_collection(
         embedding=embeddings,
         url=os.environ["QDRANT_URL"],
         api_key=os.environ["QDRANT_API_KEY"],
         collection_name=COLLECTION_NAME,
     )
-    return vectorstore.as_retriever(search_kwargs={"k": 4})
+    return vectorstore.as_retriever(search_kwargs={"k": 6})
 
 
 def get_rag_tool():
@@ -30,8 +33,12 @@ def get_rag_tool():
         _get_retriever(),
         name="search_personal_docs",
         description=(
-            "Search the user's personal nutrition documents (Word and Excel files). "
-            "Use this for questions about their notes on diet, foods, health, and nutrition."
+            "Search the user's personal nutrition knowledge base. "
+            "Contains: concepts (vitamins, minerals, proteins, fats, carbohydrates, fiber, antioxidants, omega-3, grains), "
+            "food profiles (vegetables, fish, meat, dairy, legumes, nuts/seeds, fruits), "
+            "guides (raw vs cooked, food storage, weight loss and muscle gain), "
+            "and personal nutrient sources with quantities and % daily intake. "
+            "Use this for any question about nutrition, diet, foods, health, or the user's personal notes."
         ),
     )
 
